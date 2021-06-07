@@ -1,35 +1,63 @@
+".First.task" <-
+function(...) {
+  library( offarray)
+  library( kinsimmer)
+  if( !nzchar( Sys.which( 'g++'))) {
+    makepath <- Sys.which( 'make')
+    rtoolspath <- dirname( dirname( dirname( makepath)))
+    bits <- sub( '.*[^0-9]([0-9]+)$', '\\1', R.version$arch)
+    if( bits != '64') {
+      bits <- 32 # fuck em all they don't fucken make it EASY do they ???
+    }
+    compiler_path <- file.path( rtoolspath, 'mingw' %&% bits, 'bin')
+    if( !file.exists( file.path( compiler_path, 'g++.exe'))) {
+      warning( "Can't find g++ in '" %&% compiler_path %&% "'")
+    } else {
+      Sys.setenv( PATH=sprintf( '%s;%s', compiler_path, Sys.getenv( 'PATH')))
+    }
+  }
+
+  # All monkeys to typewriters! All monkeys to typewriters! Start typing...
+  if( .Platform$r_arch=='x64' && nzchar( bp64 <- Sys.getenv( 'BINPREF64'))) {
+    Sys.setenv( BINPREF=bp64)
+  }
+
+  library( TMB)
+}
+
+
 
 "add_handed" <-
 function( df, pRight) {
   extract.named( df)
-
+  
   my_Mum <- match( Mum, Me) # will alter Mum by adding attrib
   my_Dad <- match( Dad, Me) # ditto mutato mutandis
-
+  
   n <- length( Mum)
   chirogene <- matrix( 0L, n, 2)
   is_founder <- Mum=='founder' # and Dad will be too, by defn
   chirogene[ is_founder,] <- rsample( 2*sum(is_founder), 1:2, prob=c( pRight, 1-pRight), replace=TRUE)
   # Everyone who's not a founder, gets their genes from an ancestor with knowable genes
-
+  
   # Which Mat & which Pat gene does everyone get?
   whicho_Mum <- rsample( n, 1:2, replace=TRUE)
   whicho_Dad <- rsample( n, 1:2, replace=TRUE)
-
+  
   repeat{
     nogenes <- which( rowSums( chirogene)==0)
     if( !length( nogenes)){
   break
     }
-
+  
     # nkp is nogeners whose parent's genes *are* both now known
     nkp <- nogenes[ (chirogene[ my_Mum[ nogenes],1]>0) & (chirogene[ my_Dad[ nogenes],1]>0)]
     if( !length( nkp)) {
 stop( "Impasse...") # no progress possible!
     }
-    chirogene[ nkp,1] <- chirogene[ cbind( my_Mum[ nkp], whicho_Mum[ nkp])]
-    chirogene[ nkp,2] <- chirogene[ cbind( my_Dad[ nkp], whicho_Dad[ nkp])]
-  }
+    chirogene[ nkp,1] <- chirogene[ cbind( my_Mum[ nkp], whicho_Mum[ nkp])] 
+    chirogene[ nkp,2] <- chirogene[ cbind( my_Dad[ nkp], whicho_Dad[ nkp])] 
+  }  
 
   Hand <- ifelse( rowSums( chirogene==1)==2, 'R', 'L')
   df$chirogene <- chirogene
@@ -62,59 +90,59 @@ function( params){
   })
 
   ## Kinprob given OBSERVED covars, ie Fuzzage instead of true A
-
+  
   ## Bayes' theorem to get Pr[ truA | Fuzzage, Y]
   Pr_AF_Y <- autoloop( A=A_range, F=F_range, Y=Y_range, {
-    Pr_Fuzzage_Atru[ F, A] *
+    Pr_Fuzzage_Atru[ F, A] * 
     est_Pr_A_SampY[ A, Y]
   })
-
+  
   Pr_F_Y <- sumover( Pr_AF_Y, 'A')
   Pr_A_FY <- autoloop( A=A_range, F=F_range, Y=Y_range, {
     Pr_AF_Y[ A, F, Y] / Pr_F_Y[ F, Y]
   })
-
-  # "Mix" the ideal probs
+    
+  # "Mix" the ideal probs 
 
   if( 1 %in% calc_version){
     # Ideal autoloop version, but slow because the 6D array is HUGE!
     # Fancier sumover/autoloop combo function could fix this
 
-    Pr_MOPAA_FYFY <- autoloop( A1=A_range, A2=A_range, F1=F_range, Y1=Y_range, F2=F_range, Y2=Y_range, {
-      # True kinship (MO or OM) is unobservable. MO and OM are mutually exclusive, so we can add their probs...
-      ( Pr_MOP_BYA[ Y1-A1, Y2, A2] + Pr_MOP_BYA[ Y2-A2, Y1, A1]) *
-       Pr_A_FY[ A1, F1, Y1] *
-       Pr_A_FY[ A2, F2, Y2]
-    })
-
-    Pr_MOP_FYFY <- sumover( Pr_MOPAA_FYFY, cq( A1, A2))
-  }
-
+		Pr_MOPAA_FYFY <- autoloop( A1=A_range, A2=A_range, F1=F_range, Y1=Y_range, F2=F_range, Y2=Y_range, {
+			# True kinship (MO or OM) is unobservable. MO and OM are mutually exclusive, so we can add their probs...
+			( Pr_MOP_BYA[ Y1-A1, Y2, A2] + Pr_MOP_BYA[ Y2-A2, Y1, A1]) *    
+			 Pr_A_FY[ A1, F1, Y1] *
+			 Pr_A_FY[ A2, F2, Y2]
+		})
+		
+		Pr_MOP_FYFY <- sumover( Pr_MOPAA_FYFY, cq( A1, A2))
+  }    
+  
   # Faster alternative I hope. Keep the FOR-loops as small as possible...
   if( 2 %in% calc_version)evalq({
-    Pr_MOP_FYFY <- autoloop( F1=F_range, Y1=Y_range, F2=F_range, Y2=Y_range, 0) # store results
-
-    for( A1 in A_range) for( A2 in A_range) {
-      this_Pr_MOP_FYFY <- autoloop( F1=F_range, Y1=Y_range, F2=F_range, Y2=Y_range, {
-        ( Pr_MOP_BYA[ Y1-A1, Y2, A2] + Pr_MOP_BYA[ Y2-A2, Y1, A1]) *
-         Pr_A_FY[ A1, F1, Y1] *
-         Pr_A_FY[ A2, F2, Y2]
-        })
-      Pr_MOP_FYFY <- Pr_MOP_FYFY + this_Pr_MOP_FYFY
-    }
+  	Pr_MOP_FYFY <- autoloop( F1=F_range, Y1=Y_range, F2=F_range, Y2=Y_range, 0) # store results
+  	
+		for( A1 in A_range) for( A2 in A_range) {
+			this_Pr_MOP_FYFY <- autoloop( F1=F_range, Y1=Y_range, F2=F_range, Y2=Y_range, {
+				( Pr_MOP_BYA[ Y1-A1, Y2, A2] + Pr_MOP_BYA[ Y2-A2, Y1, A1]) *    
+				 Pr_A_FY[ A1, F1, Y1] *
+				 Pr_A_FY[ A2, F2, Y2]
+				})
+			Pr_MOP_FYFY <- Pr_MOP_FYFY + this_Pr_MOP_FYFY
+		}
   })
 
   if( 3 %in% calc_version)evalq({
-    Pr_MOP_FYFY <- autoloop( F1=F_range, Y1=Y_range, F2=F_range, Y2=Y_range, 0) # store results
-
-    for( F1 in F_range) for( F2 in F_range) {
-      this_Pr_MOPAA_FYFY <- autoloop( A1=A_range, Y1=Y_range, A2=A_range, Y2=Y_range, {
-        ( Pr_MOP_BYA[ Y1-A1, Y2, A2] + Pr_MOP_BYA[ Y2-A2, Y1, A1]) *
-         Pr_A_FY[ A1, F1, Y1] *
-         Pr_A_FY[ A2, F2, Y2]
-        })
-      Pr_MOP_FYFY[ SLICE=F1,,SLICE=F2,] <- sumover( this_Pr_MOPAA_FYFY, cq( A1, A2))
-    }
+  	Pr_MOP_FYFY <- autoloop( F1=F_range, Y1=Y_range, F2=F_range, Y2=Y_range, 0) # store results
+  	
+		for( F1 in F_range) for( F2 in F_range) {
+			this_Pr_MOPAA_FYFY <- autoloop( A1=A_range, Y1=Y_range, A2=A_range, Y2=Y_range, {
+				( Pr_MOP_BYA[ Y1-A1, Y2, A2] + Pr_MOP_BYA[ Y2-A2, Y1, A1]) *    
+				 Pr_A_FY[ A1, F1, Y1] *
+				 Pr_A_FY[ A2, F2, Y2]
+				})
+		  Pr_MOP_FYFY[ SLICE=F1,,SLICE=F2,] <- sumover( this_Pr_MOPAA_FYFY, cq( A1, A2))
+		}
   })
 
 
@@ -164,11 +192,11 @@ function( sampo, prev_env=parent.env()){
   AMAX <- lastel( C_sya, 3)
   # Year of birth
   B <- Y - A
-
+  
   adid <- which( poss_par)
   juvid <- which( poss_off)
 
-  rPOPs <- kinsimmer:::pairid( POPs[,1], POPs[,2]) # combine into single real number
+  rPOPs <- pairid( POPs[,1], POPs[,2]) # combine into single real number
 
   # Package up stuff, to be used as environment for lglk function
   y0 <- min( B[ juvid]) # SHOULDN'T really be data-driven
@@ -254,7 +282,7 @@ function( sampo, prev_env=parent.env()){
   adid <- which( poss_par)
   juvid <- which( poss_off)
 
-  rPOPs <- kinsimmer:::pairid( POPs[,1], POPs[,2]) # combine into single real number
+  rPOPs <- pairid( POPs[,1], POPs[,2]) # combine into single real number
 
   # Package up stuff, to be used as environment for lglk function
   y0 <- min( B[ juvid]) # SHOULDN'T really be data-driven
@@ -296,8 +324,8 @@ function( sampo, prev_env=parent.env()){
 
   # That's what's needed for fitting...
   # ... next only for "pedagogical" purposes (data inspection)
-  MOP_df <- boring_dfize( n_MOP, n_comp_MOP)
-  MOP_noHands_df <- boring_dfize( n_MOP_noHands, n_comp_MOP_noHands)
+  MOP_df <- boring_dfize( n_MOP, n_comp_MOP) 
+  MOP_noHands_df <- boring_dfize( n_MOP_noHands, n_comp_MOP_noHands) 
 
   # copy useful vars into envo... R magic, just trust me on this one ;)
   list2env( mget( cq( n_comp_MOP, n_MOP, n_MOP_noHands, n_comp_MOP_noHands,
@@ -342,7 +370,7 @@ function( sampo, prev_env=parent.env()){
   adid <- which( poss_par)
   juvid <- which( poss_off)
 
-  rPOPs <- kinsimmer:::pairid( POPs[,1], POPs[,2]) # combine into single real number
+  rPOPs <- pairid( POPs[,1], POPs[,2]) # combine into single real number
 
   ## Package up stuff, to go into envir of lglk function
   B <- Y - Jage # will be NA for adults, cos only Fuzzage avail
@@ -400,7 +428,7 @@ function( sampo, prev_env=parent.env()){
   SD1 <- sqrt( EEE2 - sqr( EEE1))
   likely_Amax <- c( floor( MFA - SD1)) # c() to de-matrix
   trim_Aad_range <- Aad_range %such.that% (. < likely_Amax)
-
+  
   # WARNING--  I found this unstable. Changing the "<" to "<=" above, gives much wobblier estimates...
   Pr_Fuzzage_Atru <- fuzzer[ Fuzzad_range, trim_Aad_range]
   names( dimnames( Pr_Fuzzage_Atru)) <- cq( Fuzzage, A)
@@ -422,11 +450,11 @@ function( sampo, prev_env=parent.env()){
 
   # That's what's needed for fitting...
   # ... next only for "pedagogical" purposes (data inspection)
-  MOP_df <- boring_dfize( n_MOP, n_comp_MOP)
+  MOP_df <- boring_dfize( n_MOP, n_comp_MOP) 
 
   # copy useful vars into envo... R magic, just trust me on this one ;)
   likely_Aad_range <- trim_Aad_range # name used in lglk
-  list2env( mget( cq(
+  list2env( mget( cq( 
       n_comp_MOP, n_MOP,
       Bju_range, Yad_range, Fuzzad_range, likely_Aad_range,
       est_Pr_A_SampY,
@@ -472,14 +500,14 @@ function( sampo, prev_env=parent.env()){
   PLAUS_AGE_TRIMMER <- 0.02 # discard (older) ages whose rev cumul prob falls below this
 
   # This time *everyone* is a potential parent *and* a potential offspring...
-  rPOPs <- kinsimmer:::pairid( POPs[,1], POPs[,2]) # combine into single real number
+  rPOPs <- pairid( POPs[,1], POPs[,2]) # combine into single real number
 
   ## Package up stuff, to go into envir of lglk function
   y0 <- min(Y)-Amat       # Pretty arbitrary! Interested only from here on
   ylast <- max(Y)
   years <- y0 %upto% max( Y) # for pop dyn model. This could go waaay back in time than, but we will truncate
-  samp_Y_range <- min( Y) %upto% max( Y)
-
+  samp_Y_range <- min( Y) %upto% max( Y) 
+  
   envo <- list2env( mget( cq( rPOPs, Y, Fuzzage, Amat, y0, ylast, years, samp_Y_range)), parent=prev_env)
 
   # Now estimate *true* age compo in *samples*, by deconvolution of fuzzage compo
@@ -487,7 +515,7 @@ function( sampo, prev_env=parent.env()){
     Fuzzage=Fuzzage,
     Y=Y
   ))
-
+  
   # fuzzer has more age-classes than seen in actual data, so trim it...
   # ... 1 SD in from max Fuzzage. This is AD HOC but shouldn't matter; no good exact solution.
   # LONG BORING SNIPPET !!!
@@ -506,7 +534,7 @@ function( sampo, prev_env=parent.env()){
   SD1 <- sqrt( EEE2 - sqr( EEE1))
   likely_Amax <- c( floor( MFA - SD1)) # c() to de-matrix
   trim_A_range <- 1 %upto% likely_Amax
-
+  
   Pr_Fuzzage_Atru <- fuzzer[ samp_Fuzz_range, trim_A_range]
   names( dimnames( Pr_Fuzzage_Atru)) <- cq( Fuzzage, A)
   # Normalize columns to sum to 1
@@ -527,63 +555,63 @@ function( sampo, prev_env=parent.env()){
 
 
   ## Stuff for aggregated version:
-
+  
   ## Only include comps where AT LEAST ONE of the pair is very likely born afterat y0
   # MASSIVE PITA
   # Here's the code from the lglk...
-  Pr_AF_Y <- autoloop( A=trim_A_range, F=samp_Fuzz_range, Y=samp_Y_range, {
-    Pr_Fuzzage_Atru[ F, A] *
-    est_Pr_A_SampY[ A, Y]
-  })
+	Pr_AF_Y <- autoloop( A=trim_A_range, F=samp_Fuzz_range, Y=samp_Y_range, {
+		Pr_Fuzzage_Atru[ F, A] * 
+		est_Pr_A_SampY[ A, Y]
+	})
 
-  Pr_F_Y <- sumover( Pr_AF_Y, 'A')
-  Pr_A_FY <- autoloop( A=trim_A_range, F=samp_Fuzz_range, Y=samp_Y_range, {
-    Pr_AF_Y[ A, F, Y] / Pr_F_Y[ F, Y]
-  })
+	Pr_F_Y <- sumover( Pr_AF_Y, 'A')
+	Pr_A_FY <- autoloop( A=trim_A_range, F=samp_Fuzz_range, Y=samp_Y_range, {
+		Pr_AF_Y[ A, F, Y] / Pr_F_Y[ F, Y]
+	})
 
   ## Now we need min *plaus* B for each F & Y
   # Find cumul probs of A given F, Y; then find the one that's within PLAUS_AGE_TRIMMER of 1
   # Probably autoloopable, but tricky and unclear...
   min_plaus_B_FY <- autoloop( F=samp_Fuzz_range, Y=samp_Y_range, 0) # easier than calling offarray() !
   evalq({ # for debugging speed
-    for( iF in samp_Fuzz_range){
-      for( iY in samp_Y_range) {
-        cumPr_A_FY <- cumsum( unclass( Pr_A_FY[,SLICE=iF,SLICE=iY]))
-        max_plaus_A_FY <- 1 + findInterval( 1-PLAUS_AGE_TRIMMER, cumPr_A_FY)
-        min_plaus_B_FY[ iF, iY] <- iY - max_plaus_A_FY
-      }
-    }
+		for( iF in samp_Fuzz_range){
+			for( iY in samp_Y_range) {
+				cumPr_A_FY <- cumsum( unclass( Pr_A_FY[,SLICE=iF,SLICE=iY]))
+				max_plaus_A_FY <- 1 + findInterval( 1-PLAUS_AGE_TRIMMER, cumPr_A_FY)
+				min_plaus_B_FY[ iF, iY] <- iY - max_plaus_A_FY
+			}
+		}
   })
-
+  
   # m_... is samp size
   m_FY <- samp_FuzzY
 
   # This lglk needs n_MOP_FYFY
   # Number of comparisons: product of sample sizes by category
-
+  
   # POPs will be organized so that Y1 < Y2, or F1 <= F2 if Y1=Y2
   # When Y1==Y2 and F1==F2, do 1/2 the number of comps (really m*(m-1)/2 but...)
   # Thus, only do comparisons that correspond
   # Also will discard POPs where O would plausibly be prior to y0
   n_comp_MOP <- autoloop( F1=samp_Fuzz_range, Y1=samp_Y_range, F2=samp_Fuzz_range, Y2=samp_Y_range, {
-      ((min_plaus_B_FY[ F1, Y1] >= y0) | (min_plaus_B_FY[ F2, Y2] >= y0)) *
-      m_FY[ F1, Y1] * m_FY[ F2, Y2] *
+      ((min_plaus_B_FY[ F1, Y1] >= y0) | (min_plaus_B_FY[ F2, Y2] >= y0)) * 
+      m_FY[ F1, Y1] * m_FY[ F2, Y2] *  
       ( ((Y1<Y2) | ((Y1==Y2) & (F1<F2))) + 0.5 * ((Y1==Y2) & (F1==F2)) )
     })
 
-  # Reorder the POPs so
-  F1 <- Fuzzage[ POPs[,1]]
-  Y1 <- Y[ POPs[,1]]
-  F2 <- Fuzzage[ POPs[,2]]
-  Y2 <- Y[ POPs[,2]]
+  # Reorder the POPs so 
+	F1 <- Fuzzage[ POPs[,1]]
+	Y1 <- Y[ POPs[,1]]
+	F2 <- Fuzzage[ POPs[,2]]
+	Y2 <- Y[ POPs[,2]]
   swappo <- (Y1>Y2) | ((Y1==Y2) & (F1>F2))
   POPs[ swappo, 1:2] <- POPs[ swappo, 2:1]
-
-  # check that POPs have been reorganized OK!
-  F1 <- Fuzzage[ POPs[,1]]
-  Y1 <- Y[ POPs[,1]]
-  F2 <- Fuzzage[ POPs[,2]]
-  Y2 <- Y[ POPs[,2]]
+ 
+	# check that POPs have been reorganized OK!
+	F1 <- Fuzzage[ POPs[,1]]
+	Y1 <- Y[ POPs[,1]]
+	F2 <- Fuzzage[ POPs[,2]]
+	Y2 <- Y[ POPs[,2]]
 stopifnot( all( ((Y1<Y2) | ((Y1==Y2) & (F1<F2))) | ((Y1==Y2) & (F1==F2)) ))
 
 
@@ -602,13 +630,13 @@ stopifnot( all( n_MOP[ VECSUB=which( c( n_comp_MOP)==0)] == 0) )
 
   # That's what's needed for fitting...
   # ... next only for "pedagogical" purposes (data inspection)
-  MOP_df <- boring_dfize( n_MOP, n_comp_MOP)
+  MOP_df <- boring_dfize( n_MOP, n_comp_MOP) 
 
   # copy useful vars into envo... R magic, just trust me on this one ;)
   A_range <- trim_A_range # for lglk
   F_range <- samp_Fuzz_range
   Y_range <- samp_Y_range
-  list2env( mget( cq(
+  list2env( mget( cq( 
       n_comp_MOP, n_MOP,
       Y_range,F_range, A_range,
       est_Pr_A_SampY,
@@ -624,6 +652,63 @@ return( envo)
 
 
 
+"boring_data_prep_humungo_A" <-
+function( sampo, prev_env=parent.env()){
+  extract.named( sampo) # Samps, POPs, MHSPs, ...
+  extract.named( Samps) # Y, Fuzzage
+  extract.named( sampo@public) # Amat, fuzzer
+  AMAX <- lastel( C_sya, 3)
+
+  juvid <- which( poss_off)
+  
+  B <- Y-A
+	y0 <- min( B[ juvid]) # SHOULDN'T really be data-driven
+	ylast <- max( B[ juvid]) 
+	years <- y0 %upto% ylast
+	Bju_range <- years
+	
+	envo <- list2env( mget( cq( B, Y, A, Amat, y0, ylast, years, juvid)), parent=prev_env)
+
+  # And for MHSPs... guaranteed in birth-order by row, thx2 prepare_from_sim()
+  m_ju_B <- offarray( table( B[ juvid]))
+  n_comp_MHSP <- autoloop( B1=Bju_range, B2=Bju_range, {
+      # NB *exclude* double-count and same-cohort
+      m_ju_B[ B1] * m_ju_B[ B2] * (B2>B1)
+    })
+
+  # Make sure first-born is first
+  swappo <- B[ MHSPs[,1]] > B[ MHSPs[,2]]
+  MHSPs[ swappo,] <- MHSPs[ swappo,2:1]
+  
+  # Elim same-cohort MHSPs--- though mostly same-chters would be FSPs
+  droppo <- B[ MHSPs[,1]] == B[ MHSPs[,2]]
+  MHSPs <- MHSPs[ !droppo,]
+
+  n_MHSP <- offarray( table( B1=B[ MHSPs[,1]], B2=B[ MHSPs[,2]]),
+      template=n_comp_MHSP)
+
+  # That's what's needed for fitting
+  # For "pedagogical" purposes, convert those arrays into data.frames
+  # this uses code from the base-R and the "markiverse", not the "tidyverse" !
+  # ... and, I might add, it works just fine ;)
+
+  MHSP_df <- as.data.frame( n_comp_MHSP, name_of_response='n_comp_MHSP')
+  temp <- as.data.frame( n_MHSP, name_of_response='n_MHSP')
+  MHSP_df <- cbind( MHSP_df, n_MHSP=temp$n_MHSP) # really ought to check that the index rows match...
+  MHSP_df$dB <- with( MHSP_df, B2-B1)
+  # Just the useful bits:
+  MHSP_df <- MHSP_df %where% (n_comp_MHSP > 0)
+
+  list2env( mget( cq( n_comp_MHSP, n_MHSP,
+      Bju_range, # in sample
+      AMAX, # why? who? wot?
+      MHSP_df)), envo)
+
+return( envo)
+}
+
+
+
 "boring_data_prep_rhombi_D" <-
 function( sampo, prev_env=parent.env()){
   SEXES <- cq( F, M)
@@ -632,12 +717,13 @@ function( sampo, prev_env=parent.env()){
   extract.named( sampo) # Samps, POPs, HSPs, ...
   extract.named( Samps)
   extract.named( sampo@public) # Amat
-
+  
   adid <- which( poss_par)
   juvid <- which( poss_off)
 
-  rPOPs <- kinsimmer:::pairid( POPs[,1], POPs[,2]) # combine into single real number
-
+  # Can't remember what this is for!
+  rPOPs <- pairid( POPs[,1], POPs[,2]) # combine into single real number
+  
   # Not using offarray( table(...)) here becos it seems broken on 1D case!
   m_ad_S <- c( F=sum( Sex[ adid]=='F'), M=sum( Sex[ adid]=='M'))
   m_ju <- length( juvid) # or sum( is.na( Sex)), or...
@@ -646,7 +732,7 @@ function( sampo, prev_env=parent.env()){
   # See ?offarray::noloop  or code of lglk_aggregate() below
   n_comp_POP <- m_ju * m_ad_S
 
-
+  
   # Following doesn't work becos offarray( table()) bug in 1D case...
 #  n_POP <- offarray( table(
 #      Sad=Sex[ POPs[,1]]),
@@ -654,7 +740,7 @@ function( sampo, prev_env=parent.env()){
 
   n_POP <- c( F=sum( Sex[ POPs[,1]]=='F'), M=sum( Sex[ POPs[,1]]=='M'))
 
-  list2env( mget( cq(
+  list2env( mget( cq( 
       n_comp_POP, n_POP)),
     envo)
 
@@ -676,15 +762,15 @@ function( sampo, prev_env=parent.env()){
   dimnames( Pr_Co_unbiased) <- list( S=SEXES, Co=NULL) # doesn't need to be offarray
   Pr_Co_unbiased@offset <- c( NA, NA)
   oldClass( Pr_Co_unbiased) <- 'offarray'
-
+  
   adid <- which( poss_par)
   juvid <- which( poss_off)
 
-  rPOPs <- kinsimmer:::pairid( POPs[,1], POPs[,2]) # combine into single real number
-
+  rPOPs <- pairid( POPs[,1], POPs[,2]) # combine into single real number
+  
   m_ju <- length( juvid) # or sum( is.na( Sex)), or...
   m_ad_SCo <- offarray( table( S=Sex[ adid], Co=Co[ adid]))
-
+  
   # Number of comparisons: product of sample sizes by category
   n_comp_POP <- m_ju * m_ad_SCo
 
@@ -693,7 +779,7 @@ function( sampo, prev_env=parent.env()){
       Co=Co[ POPs[,1]]),
       template=n_comp_POP) # template ensures full ranges used, even if no entries for some values
 
-  list2env( mget( cq(
+  list2env( mget( cq( 
       Co_levels, n_Co_levels,
       Pr_Co_unbiased,
       n_comp_POP, n_POP)),
@@ -726,7 +812,7 @@ function( params){
   Nfemale <- exp( params[ 1])
   Nmale <- exp( params[ 2])
 
-  ## "Population dynamics"
+  ## "Population dynamics" 
   Nad <- c( F=Nfemale, M=Nmale)
 
   ## Ideal kinprob
@@ -754,7 +840,7 @@ function( params){
   ## Unpack parameters
   Nfemale <- exp( params[ 1])
   Nmale <- exp( params[ 2])
-  Co_expo <- c( F=0, M=params[3]) # hardwire no effect for Females
+  Co_expo <- c( F=0, M=params[3]) # hardwire no effect for Females 
 
   ## "Population dynamics" and "biology"
   Nad <- c( F=Nfemale, M=Nmale)
@@ -762,11 +848,11 @@ function( params){
     Co ^ Co_expo[S]
   })
   fec_Co_m <- unclass( fec_Co[ SLICE='M',])
-
+  
   ## Compute TRO. We "know" true ppn by Co-level in adult Males thx2 unbiased sample...
   RO_SCo <- autoloop( S=SEXES, Co=Co_levels, {
-    Nad[ S] *
-    fec_Co[ S, Co] *
+    Nad[ S] * 
+    fec_Co[ S, Co] * 
     Pr_Co_unbiased[ S, Co]
   })
   TRO <- sumover( RO_SCo, 'Co') # by Sex
@@ -775,7 +861,7 @@ function( params){
   Pr_POP_SCo <- autoloop( S=SEXES, Co=Co_levels, {
     fec_Co[ S, Co] / TRO[ S]
   })
-
+  
   ## Housekeeping...
   Pr_POP <- Pr_POP_SCo # for consistency with other generic lglks
   list2env( mget( cq( Nad, Pr_POP, Co_expo, fec_Co_m)), envir=environment( sys.function()))
@@ -787,6 +873,47 @@ return( -1e100) # optim/nlminb has tried insane param values...
 
   ## The result!
   lglk <- sum( dpois( n_POP, lambda=n_comp_POP * Pr_POP, log=TRUE))
+
+return( lglk)
+}
+
+
+
+"generic_lglk_HSP_mammal" <-
+function( params){
+  ## Unpack parameters
+  Nfad_y0 <- exp( params[ 1])
+  RoI <- params[ 2]
+  Z <- exp( params[ 3])
+
+  ## Population dynamics
+
+  N <- offarray( 0, first=min( Bju_range), last=max( Bju_range))
+  N[] <- Nfad_y0 * exp( RoI * (Bju_range-y0))
+  # or:
+  # N <- autoloop( B=Bju_range, {
+  #   Nfad_y0 * exp( RoI * (B-y0)) 
+  # })
+
+  # OMHSP is "Ordered" Maternal HSP--- ie 1st one was born first
+  # Expects data is organized that way (and thus that we know age exactly)
+  # Watch out for double-counting with HSPs...
+  Pr_OMHSP <- autoloop( B1=Bju_range, B2=Bju_range, {
+    cumul_surv <- exp( -Z*(B2-B1))
+    (B2 > B1) * cumul_surv / N[ B2]
+  })
+
+  Pr_MHSP <- Pr_OMHSP # for consistency
+ 
+  # Useful to keep some stuff after function exits. Trust me, this works...
+  list2env( mget( cq( Nfad_y0, RoI, Z, N, Pr_MHSP)), env)
+
+  if( !all( is.finite( Pr_MHSP) & (Pr_MHSP >= 0) & (Pr_MHSP <= 1))) {
+return( -1e100) # optim/nlminb has tried insane param values...
+    # ... this avoids NaN warnings from dbinom()
+  }
+
+  lglk <- sum( dpois( n_MHSP, lambda= n_comp_MHSP * Pr_MHSP, log=TRUE))
 
 return( lglk)
 }
@@ -816,19 +943,19 @@ function( params){
   })
 
   ## Kinprob given OBSERVED covars, ie Fuzzage instead of true A
-
+  
   ## Bayes' theorem to get Pr[ truA | Fuzzage, Y]
   Pr_Afuzz_Y <- autoloop( A=likely_Aad_range, Fuzz=Fuzzad_range, Y=Yad_range, {
-    Pr_Fuzzage_Atru[ Fuzz, A] *
+    Pr_Fuzzage_Atru[ Fuzz, A] * 
     est_Pr_A_SampY[ A, Y]
   })
-
+  
   Pr_Fuzz_Y <- sumover( Pr_Afuzz_Y, 'A')
   Pr_A_FuzzY <- autoloop( A=likely_Aad_range, Fuzz=Fuzzad_range, Y=Yad_range, {
     Pr_Afuzz_Y[ A, Fuzz, Y] / Pr_Fuzz_Y[ Fuzz, Y]
   })
-
-  # "Mix" the ideal probs
+    
+  # "Mix" the ideal probs 
   Pr_AMOP_BYFuzz <- autoloop( Bju=Bju_range, Y=Yad_range, A=likely_Aad_range, Fuzz=Fuzzad_range, {
     Pr_MOP_ideal_BYA[ Bju, Y, A] *
     Pr_A_FuzzY[ A, Fuzz, Y]
@@ -876,31 +1003,31 @@ function( params){
   })
 
   ## Kinprob given OBSERVED covars, ie Fuzzage instead of true A
-
+  
   ## Bayes' theorem to get Pr[ truA | Fuzzage, Y]
   Pr_AF_Y <- autoloop( A=A_range, F=F_range, Y=Y_range, {
-    Pr_Fuzzage_Atru[ F, A] *
+    Pr_Fuzzage_Atru[ F, A] * 
     est_Pr_A_SampY[ A, Y]
   })
-
+  
   Pr_F_Y <- sumover( Pr_AF_Y, 'A')
   Pr_A_FY <- autoloop( A=A_range, F=F_range, Y=Y_range, {
     Pr_AF_Y[ A, F, Y] / Pr_F_Y[ F, Y]
   })
+    
+  # "Mix" the ideal probs 
+	Pr_MOPAA_FYFY <- autoloop( A1=A_range, A2=A_range, F1=F_range, Y1=Y_range, F2=F_range, Y2=Y_range, {
+		# True kinship (MO or OM) is unobservable. MO and OM are mutually exclusive, so we can add their probs...
+		# NB horrible truncation here... have to avoid accessing OOR elements. 
+		# If one animal is clearly adult, the truncation is "bad" but the prob of it being an off anyway will be 0
+		( Pr_MOP_BYA[ pmax( y0, Y1-A1), Y2, A2] + Pr_MOP_BYA[ pmax( y0, Y2-A2), Y1, A1]) *    
+		 Pr_A_FY[ A1, F1, Y1] *
+		 Pr_A_FY[ A2, F2, Y2]
+	})
 
-  # "Mix" the ideal probs
-  Pr_MOPAA_FYFY <- autoloop( A1=A_range, A2=A_range, F1=F_range, Y1=Y_range, F2=F_range, Y2=Y_range, {
-    # True kinship (MO or OM) is unobservable. MO and OM are mutually exclusive, so we can add their probs...
-    # NB horrible truncation here... have to avoid accessing OOR elements.
-    # If one animal is clearly adult, the truncation is "bad" but the prob of it being an off anyway will be 0
-    ( Pr_MOP_BYA[ pmax( y0, Y1-A1), Y2, A2] + Pr_MOP_BYA[ pmax( y0, Y2-A2), Y1, A1]) *
-     Pr_A_FY[ A1, F1, Y1] *
-     Pr_A_FY[ A2, F2, Y2]
-  })
+	Pr_MOP_FYFY <- sumover( Pr_MOPAA_FYFY, cq( A1, A2))
 
-  Pr_MOP_FYFY <- sumover( Pr_MOPAA_FYFY, cq( A1, A2))
-
-  rm( Pr_MOPAA_FYFY); gc() # _might_ speed things up...
+	rm( Pr_MOPAA_FYFY); gc() # _might_ speed things up...
 
   # Check: dimseq( Pr_MOP_FYFY) vs dimseq( n_MOP)
   Pr_MOP <- Pr_MOP_FYFY #  keep same notation as other examples
@@ -981,23 +1108,23 @@ function( params){
   HANDED <- cq( L, R)
 
   Pr_H <- c( R=sqr( p), L=1-sqr(p))
-
+  
   Pr_Hj_HaMO <- offarray( 0, first=c(1,1), last=c(2,2), dimnames=list( Ha=HANDED, Hj=HANDED))
   Pr_Hj_HaMO[ 'L', 'L'] <- 1 - sqr(p)/(1+p)
   Pr_Hj_HaMO[ 'R', 'L'] <- sqr(p)/(1+p)
   Pr_Hj_HaMO[ 'L', 'R'] <- 1-p
   Pr_Hj_HaMO[ 'R', 'R'] <- p
-
+  
   # Conditional ERRO (ie Pr[MO]), given ad was alive and mature, and the handednesses. See maths doco
   cond_ERRO_almatBHH <- autoloop( Bju=Bju_range, Hju=HANDED, Had=HANDED, {
-    (Pr_Hj_HaMO[ Hju, Had] / Pr_H[ Hju]) * (1/N[ Bju])
+    (Pr_Hj_HaMO[ Hju, Had] / Pr_H[ Hju]) * (1/N[ Bju])               
   })
-
+  
   Pr_MOP <- autoloop( Bju=Bju_range, Hju=HANDED, Yad=Yad_range, Aad=Aad_range, Had=HANDED, {
     Bad <- Yad - Aad          # when was ad born?
     ( Bju <= Yad ) *          # was ad still alive at B[ju] ?
     ( Bju >= Amat + Bad ) *   # was ad mature at B[ju] ?
-    cond_ERRO_almatBHH[ Bju, Hju, Had]
+    cond_ERRO_almatBHH[ Bju, Hju, Had] 
   })
 
   # Useful to keep some stuff after function exits. Trust me, this works...
@@ -1015,22 +1142,27 @@ return( lglk)
 
 
 
+"pairid" <-
+function( i, j) i + 1/(1+j)
+
+
+
 "pyro_enfum" <-
 function( AMIN, AMAX, mulbo=1) {
   ## Bigger mulbo means tighter
   truA <- AMIN:AMAX
-
-  cumpr_aconv_a <- autoloop( Aconv=0:AMAX, Atru=truA,
+  
+  cumpr_aconv_a <- autoloop( Aconv=0:AMAX, Atru=truA, 
     pgamma( Aconv, shape=Atru*mulbo, scale=1/mulbo)
   )
 
-  pr_aconv_a <- autoloop( Aconv=1:AMAX, Atru=truA,
+  pr_aconv_a <- autoloop( Aconv=1:AMAX, Atru=truA, 
     cumpr_aconv_a[ Aconv, Atru] - cumpr_aconv_a[ Aconv-1, Atru]
   )
-
+    
   # Gotta get SOME recorded age for each true age, so norm this...
   flurk <- sumover( pr_aconv_a, 'Aconv')
-  pr_aconv_a <- autoloop( Aconv=1:AMAX, Atru=truA,
+  pr_aconv_a <- autoloop( Aconv=1:AMAX, Atru=truA, 
     pr_aconv_a[ Aconv, Atru] / flurk[ Atru]
   )
 
@@ -1041,35 +1173,35 @@ return( pr_aconv_a)
 
 "sample_rhombi" <-
 function( m_ju, m_ad, sel_m, Nm, Nf, fec_Co, sel_Co, Pr_Co) {
-  Co_levels <- seq_along( fec_Co)
-  n_Co_levels <- length( fec_Co)
-stopifnot( length( sel_Co)==n_Co_levels)
+	Co_levels <- seq_along( fec_Co)
+	n_Co_levels <- length( fec_Co)
+stopifnot( length( sel_Co)==n_Co_levels)	
 
   Co_m <- rsample( Nm, Co_levels, prob=Pr_Co, replace=TRUE)
 
   # Only need ancestry for the samples
   Dad <- rsample( m_ju, seq_len( Nm), prob=fec_Co[ Co_m], replace=TRUE)
   Mum <- rsample( m_ju, seq_len( Nf), replace=TRUE)
-
+  
   # Derwent: unselective sampling
   msamp_m <- floor( m_ad * (sel_m * Nm ) / (sel_m * Nm + Nf))
   ad_m <- rsample( msamp_m, seq_len( Nm), replace=FALSE, prob=sel_Co[ Co_m])
   msamp_f <- m_ad - msamp_m
   ad_f <- rsample( msamp_f, seq_len( Nf), replace=FALSE)
-
+  
   # Women & children first! So, offset the ids of Juves by msamp_f, and of Male adults by msamp_f + m_ju
   iMOPs <- match( Mum, ad_f, 0)
   MOPs <- cbind( iMOPs %except% 0, msamp_f + which( iMOPs > 0))
-
+  
   iFOPs <- match( Dad, ad_m, 0)
-  FOPs <- cbind( msamp_f + m_ju + (iFOPs %except% 0), msamp_f + which( iFOPs > 0))
-  POPs <- rbind( MOPs, FOPs)
-  POPs <- POPs[ rsample( nrow( POPs), 1:nrow( POPs), replace=TRUE),]
+	FOPs <- cbind( msamp_f + m_ju + (iFOPs %except% 0), msamp_f + which( iFOPs > 0))
+	POPs <- rbind( MOPs, FOPs)
+	POPs <- POPs[ rsample( nrow( POPs), 1:nrow( POPs), replace=TRUE),]
 
   m <- m_ad + m_ju
   LETTAZ <- matrix( rsample( 5*m, LETTERS, replace=T), ncol=5)
   random_names <- LETTAZ[,1] %&% LETTAZ[,2] %&% LETTAZ[,3] %&% LETTAZ[,4] %&% LETTAZ[,5]
-
+  
   Samps <- data.frame(
     Me=random_names,
     Sex=c( rep( 'F', msamp_f), rep( NA, m_ju), rep( 'M', msamp_m)),
