@@ -1217,3 +1217,44 @@ return( stuff)
 
 
 
+"vbdiff_fec" <-
+function( k, n=100, Amax=20, Amat=3, percent_sd=15, dby=0.2) {
+  qq <- (1:n - 0.5) / n
+  Linf <- qnorm( qq, 100, sd=percent_sd)
+
+  lifespan <- pmin( pmax( rexp( n, 3/Amax), 1), Amax)
+
+  A <- 1:Amax
+
+  require( vecless) # easier than outer() at least for me...
+
+
+  vbl <- function( linf, a) linf * (1-exp( -k*a))
+  L[ l, a]:= vbl( Linf[ l], A[a])
+  # L <- outer( Linf, A, vbl) # outer is confusing
+
+  plot( 0, 0, xlim=range( A), ylim=c( 0, max( Linf)), type='n',
+      xlab='Age', ylab='Length', cex.lab=2, cex.axis=2, mar=c( 5, 5, 2, 1)+0.1)
+  abline( v=Amat, col='grey')
+  text( Amat, 100, 'Maturity', adj=c( 1, 0), cex=1.5, srt=90, col='grey')
+  # matplot is shite
+  for( i in 1:n) {
+    afrac <- seq( 1, lifespan[ i], by=dby)
+    lines( afrac, vbl( Linf[ i], afrac))
+  }
+
+  fec[ l, a] := L[ l, a]^3 * (lifespan[ l] >= A[ a])
+  # Fec vblty
+
+  Pr_HSP_true <- sum( fec*fec) / sqr( sum( fec))
+
+  fecabar[ a] := (SUM_ %[l]% (L[ l, a]^3) ) / n
+
+  nata[ a]:= SUM_ %[l]% (lifespan[ l] >= A[ a])
+  Pr_HSP_justa <- (nata %**% sqr( fecabar)) / sqr( nata %**% fecabar)
+
+return( c( bias_Nhat = Pr_HSP_justa / Pr_HSP_true))
+}
+
+
+
