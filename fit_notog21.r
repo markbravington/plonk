@@ -26,7 +26,7 @@ print( load( 'samp_notog1.rda')) # object samp_notog1
 print( names( samp_notog1))
 print( head( samp_notog1$Samps))
 
-lglk_notog <- generic_lglk_notog # a copy that will be taught about delfi_C data
+lglk_notog <- generic_lglk_fish # a copy that will be taught about delfi_C data
 env <- boring_data_prep_fish( samp_notog1, prev_env=environment( lglk_notog))
 environment( lglk_notog) <- env # now, lglk_notog will always know eg what...
 # ... catches were, etc, without having to pass that stuff in every time it's called

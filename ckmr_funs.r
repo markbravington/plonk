@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 "numderiv" <-
 function(f,x0,eps=0.0001, TWICE.=TRUE, param.name=NULL, ..., SIMPLIFY=TRUE) {
   if( is.null( param.name))
@@ -32,6 +33,8 @@ return( m)
 
 
 
+=======
+>>>>>>> 5d5e9d38153b9c5cd0db6a85e3ad713ac61bdc1c
 ".First.task" <-
 function(...) {
   library( offarray)
@@ -64,34 +67,59 @@ function(...) {
 "add_handed" <-
 function( df, pRight) {
   extract.named( df)
+<<<<<<< HEAD
 
   my_Mum <- match( Mum, Me)
   my_Dad <- match( Dad, Me)
 
+=======
+  
+  my_Mum <- match( Mum, Me) # will alter Mum by adding attrib
+  my_Dad <- match( Dad, Me) # ditto mutato mutandis
+  
+>>>>>>> 5d5e9d38153b9c5cd0db6a85e3ad713ac61bdc1c
   n <- length( Mum)
   chirogene <- matrix( 0L, n, 2)
   is_founder <- Mum=='founder' # and Dad will be too, by defn
   chirogene[ is_founder,] <- rsample( 2*sum(is_founder), 1:2, prob=c( pRight, 1-pRight), replace=TRUE)
   # Everyone who's not a founder, gets their genes from an ancestor with knowable genes
+<<<<<<< HEAD
 
   # Which Mat & which Pat gene does everyone get?
   whicho_Mum <- rsample( n, 1:2, replace=TRUE)
   whicho_Dad <- rsample( n, 1:2, replace=TRUE)
 
+=======
+  
+  # Which Mat & which Pat gene does everyone get?
+  whicho_Mum <- rsample( n, 1:2, replace=TRUE)
+  whicho_Dad <- rsample( n, 1:2, replace=TRUE)
+  
+>>>>>>> 5d5e9d38153b9c5cd0db6a85e3ad713ac61bdc1c
   repeat{
     nogenes <- which( rowSums( chirogene)==0)
     if( !length( nogenes)){
   break
     }
+<<<<<<< HEAD
 
+=======
+  
+>>>>>>> 5d5e9d38153b9c5cd0db6a85e3ad713ac61bdc1c
     # nkp is nogeners whose parent's genes *are* both now known
     nkp <- nogenes[ (chirogene[ my_Mum[ nogenes],1]>0) & (chirogene[ my_Dad[ nogenes],1]>0)]
     if( !length( nkp)) {
 stop( "Impasse...") # no progress possible!
     }
+<<<<<<< HEAD
     chirogene[ nkp,1] <- chirogene[ cbind( my_Mum[ nkp], whicho_Mum[ nkp])]
     chirogene[ nkp,2] <- chirogene[ cbind( my_Dad[ nkp], whicho_Dad[ nkp])]
   }
+=======
+    chirogene[ nkp,1] <- chirogene[ cbind( my_Mum[ nkp], whicho_Mum[ nkp])] 
+    chirogene[ nkp,2] <- chirogene[ cbind( my_Dad[ nkp], whicho_Dad[ nkp])] 
+  }  
+>>>>>>> 5d5e9d38153b9c5cd0db6a85e3ad713ac61bdc1c
 
   Hand <- ifelse( rowSums( chirogene==1)==2, 'R', 'L')
   df$chirogene <- chirogene
@@ -686,6 +714,7 @@ return( envo)
 
 
 
+<<<<<<< HEAD
 "boring_data_prep_fish" <-
 function( sampo, prev_env=parent.env()){
   extract.named( sampo)
@@ -798,6 +827,8 @@ return( envo)
 
 
 
+=======
+>>>>>>> 5d5e9d38153b9c5cd0db6a85e3ad713ac61bdc1c
 "boring_data_prep_humungo_A" <-
 function( sampo, prev_env=parent.env()){
   extract.named( sampo) # Samps, POPs, MHSPs, ...
@@ -950,6 +981,7 @@ return( MOP_df)
 
 
 
+<<<<<<< HEAD
 "cheat_ruff_tru_pars" <-
 function( simpop, bdp_env) {
   # bdp_env from boring_data_prep
@@ -1012,6 +1044,8 @@ function( par) { lglk_fish( par); with( env,
 
 
 
+=======
+>>>>>>> 5d5e9d38153b9c5cd0db6a85e3ad713ac61bdc1c
 "generic_lglk_cartoon" <-
 function( params){
   assign( 'last_params', params, environment( sys.function())) # debugging etc
@@ -1087,6 +1121,7 @@ return( lglk)
 
 
 
+<<<<<<< HEAD
 "generic_lglk_fish" <-
 function( params, log_prior=NULL, cheat=NULL){
   ## For debugging only:
@@ -1226,6 +1261,8 @@ return( lglk)
 
 
 
+=======
+>>>>>>> 5d5e9d38153b9c5cd0db6a85e3ad713ac61bdc1c
 "generic_lglk_HSP_mammal" <-
 function( params){
   ## Unpack parameters
@@ -1489,6 +1526,7 @@ return( lglk)
 
 
 
+<<<<<<< HEAD
 "lglk_notog" <-
 function( params, log_prior=NULL, cheat=NULL){
   ## For debugging only:
@@ -1636,6 +1674,8 @@ function( par) { lglk_fish( par); with( env,
 
 
 
+=======
+>>>>>>> 5d5e9d38153b9c5cd0db6a85e3ad713ac61bdc1c
 "pairid" <-
 function( i, j) i + 1/(1+j)
 
@@ -1711,6 +1751,7 @@ return( stuff)
 
 
 
+<<<<<<< HEAD
 "SPRR_fun" <-
 function( par, ranges=FALSE) {
   lglk_fish( par)
@@ -1749,6 +1790,8 @@ function( pars) { lglk_fish( pars); with( env,
 
 
 
+=======
+>>>>>>> 5d5e9d38153b9c5cd0db6a85e3ad713ac61bdc1c
 "vbdiff_fec" <-
 function( k, n=100, Amax=20, Amat=3, percent_sd=15, dby=0.2) {
   qq <- (1:n - 0.5) / n
