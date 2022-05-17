@@ -1,3 +1,37 @@
+"numderiv" <-
+function(f,x0,eps=0.0001, TWICE.=TRUE, param.name=NULL, ..., SIMPLIFY=TRUE) {
+  if( is.null( param.name))
+    ff <- function( x, ...) f( x, ...)
+  else
+    ff <- function( x, ...) {
+      ll <- c( list( x), list( ...))
+      names( ll)[1] <- param.name
+      do.call( 'f', ll)
+    }
+
+  f0 <- ff(x0, ...)
+  n <- length( x0)
+  m <- matrix( 0, length(f0), n)
+  for( i in 1:n) {
+    this.eps <- eps * if( x0[ i]==0) 1 else x0[ i]
+    m[,i] <- ( ff( x0+this.eps * (1:n==i), ...) - f0) / this.eps }
+  if( !is.null( dim( f0)))
+    dim( m) <- c( dim( f0), n)
+  if( TWICE.) {
+    mc <- match.call()
+    mc$eps <- -eps
+    mc$TWICE. <- FALSE
+    m <- 0.5*(m + eval( mc, sys.frame( sys.parent())))
+  }
+  
+  if( any( dim( m)==length( m)) && SIMPLIFY)
+    m <- c( m) # demote 1D arrays to vectors
+  
+return( m)
+}
+
+
+
 ".First.task" <-
 function(...) {
   library( offarray)
@@ -30,34 +64,34 @@ function(...) {
 "add_handed" <-
 function( df, pRight) {
   extract.named( df)
-  
-  my_Mum <- match( Mum, Me) # will alter Mum by adding attrib
-  my_Dad <- match( Dad, Me) # ditto mutato mutandis
-  
+
+  my_Mum <- match( Mum, Me)
+  my_Dad <- match( Dad, Me)
+
   n <- length( Mum)
   chirogene <- matrix( 0L, n, 2)
   is_founder <- Mum=='founder' # and Dad will be too, by defn
   chirogene[ is_founder,] <- rsample( 2*sum(is_founder), 1:2, prob=c( pRight, 1-pRight), replace=TRUE)
   # Everyone who's not a founder, gets their genes from an ancestor with knowable genes
-  
+
   # Which Mat & which Pat gene does everyone get?
   whicho_Mum <- rsample( n, 1:2, replace=TRUE)
   whicho_Dad <- rsample( n, 1:2, replace=TRUE)
-  
+
   repeat{
     nogenes <- which( rowSums( chirogene)==0)
     if( !length( nogenes)){
   break
     }
-  
+
     # nkp is nogeners whose parent's genes *are* both now known
     nkp <- nogenes[ (chirogene[ my_Mum[ nogenes],1]>0) & (chirogene[ my_Dad[ nogenes],1]>0)]
     if( !length( nkp)) {
 stop( "Impasse...") # no progress possible!
     }
-    chirogene[ nkp,1] <- chirogene[ cbind( my_Mum[ nkp], whicho_Mum[ nkp])] 
-    chirogene[ nkp,2] <- chirogene[ cbind( my_Dad[ nkp], whicho_Dad[ nkp])] 
-  }  
+    chirogene[ nkp,1] <- chirogene[ cbind( my_Mum[ nkp], whicho_Mum[ nkp])]
+    chirogene[ nkp,2] <- chirogene[ cbind( my_Dad[ nkp], whicho_Dad[ nkp])]
+  }
 
   Hand <- ifelse( rowSums( chirogene==1)==2, 'R', 'L')
   df$chirogene <- chirogene
@@ -652,6 +686,118 @@ return( envo)
 
 
 
+"boring_data_prep_fish" <-
+function( sampo, prev_env=parent.env()){
+  extract.named( sampo)
+  extract.named( Samps)
+  extract.named( sampo@public) # Amat, catches
+  # Year of birth
+  B <- Y - A
+
+  # POPs (and HSPs) are supposed to be in birth-order
+  # ... with same-cohort HSPs already excluded
+  # Obvs couldn't do things exactly this way for real data with age uncertainty
+  # Could adjust order etc here, but earlier data prep is supposed to ensure it, so it's a check on misprep...
+stopifnot(
+    all( B[ POPs[,1]] < B[ POPs[,2]]),
+    all( B[ HSPs[,1]] < B[ HSPs[,2]])
+  )
+
+  # For now, keep same-cht HSPs--- zap later
+
+  # ONLY use POPS where juve is born *before* year-of-adult-capture
+  # (to avoid bias when adults caught within-spawning-season don't get a fair go that year)
+  # Strictly > (not >=)
+  POPs <- POPs[ Y[ POPs[,1]] > B[ POPs[,2]],]
+
+  rPOPs <- pairid( POPs[,1], POPs[,2]) # combine into single real number
+
+  # Package up stuff, to be used as environment for lglk function
+  y0 <- min( B[ juvid]) # SHOULDN'T really be data-driven
+  years <- min( B[ juvid]) %upto% max( Y[ adid])
+  envo <- list2env( mget( cq( rPOPs, B, Y, A, Amat, y0, years, juvid, adid)), parent=prev_env)
+
+  ## Stuff for aggregated version:
+  # NB things will be evaluate over entire range, even if gaps
+  # Dodge-able at C level (ie gaps could be handled), but maybe not in R
+  Bju_range <- min( B[ juvid]) %upto% max( B[ juvid])
+  Yad_range <- min( Y[ adid]) %upto% max( Y[ adid])
+  Aad_range <- min( A[ adid]) %upto% max( A[ adid])
+
+  # m_... is samp size
+  m_ad_YA <- offarray( table( Y[ adid], A[ adid]))
+  m_ju_B <- offarray( table( B[ juvid]))
+  m_ad_Y <- offarray( table( Y[ adid])) # for noage
+
+  # Number of comparisons: product of sample sizes by category
+  # See ?offarray::autoloop  or code of lglk_aggregate() below
+  n_comp_POP <- autoloop( Bju=Bju_range, Yad=Yad_range, Aad=Aad_range, {
+      Bad <- Yad - Aad
+      # Only do comps where ju is born after adult
+      # ... which also avoids double-counting and self-comparisons
+      # Also disallow year-of-adult-cap
+      m_ju_B[ Bju] * m_ad_YA[ Yad, Aad] * (Bju > Bad) * (Bju < Yad)
+    })
+
+
+  # Now tot up number of POPs seen, in the same way
+  n_POP <- offarray( table( Bju=B[ POPs[,2]], Yad=Y[ POPs[,1]], Aad=A[ POPs[,1]]),
+      template=n_comp_POP)
+
+
+  # And for HSPs... guaranteed in birth-order by row, thx2 prepare_from_sim()
+  n_comp_HSP <- autoloop( B1=Bju_range, B2=Bju_range, {
+      # NB *exclude* double-count and same-cohort
+      m_ju_B[ B1] * m_ju_B[ B2] * (B2>B1)
+    })
+
+  n_HSP <- offarray( table( B1=B[ HSPs[,1]], B2=B[ HSPs[,2]]),
+      template=n_comp_HSP)
+
+  n_comp_POP_noage <- autoloop( Bju=Bju_range, Yad=Yad_range, {
+      # No point if ju born after adult was (lethally) sampled
+      m_ju_B[ Bju] * m_ad_Y[ Yad] * (Bju <= Yad)
+    })
+
+
+  # Now tot up number of POPs seen, in the same way
+  n_POP_noage <- offarray( table( Bju=B[ POPs[,2]], Yad=Y[ POPs[,1]]),
+      template=n_comp_POP_noage)
+
+  # Age-structured stuff
+  # poss discrep between "adults" in the test/sample and Amat
+  AMAX <- max( Aad_range)
+
+  min_Bju <- min( Bju_range)
+  max_Bju <- max( Bju_range)
+
+  # copy useful vars into envo... R magic
+  weight <- attr( sampo, 'public')$wt_a
+  Cfem_ya <- attr( sampo, 'public')$C_sya[ SLICE='F', min_Bju %upto% max_Bju, 1:AMAX]
+  AminC <- min( which( colSums( Cfem_ya) > 0)) # start pop dyn from this age up
+  ALL_AGES <- AminC %upto% AMAX
+  Anonplus <- head( ALL_AGES, -1)
+  ADAGES <- Amat %upto% AMAX
+  Pr_FNeg_HSP <- 0 # usually ~0.15 in our real cases; here would need to "thin" true HSPs accordingly;
+  # ... too lazy
+
+  SIGNAL_BADFIT <- (-.Machine$double.xmax * 2^-32) # either optim or nlminb is sniffy about -Inf. The 2^blah is
+    # ... to avoid getting toooo close to overflow in case of internal optim/nlminb calcs. Paranoid...
+
+  list2env( mget( cq( n_comp_POP, n_POP, n_comp_HSP, n_HSP, n_POP_noage, n_comp_POP_noage,
+      Bju_range, Yad_range, Aad_range,
+      ALL_AGES, ADAGES, AMAX, Anonplus, AminC, min_Bju, max_Bju,
+      weight, Cfem_ya,
+      Pr_FNeg_HSP,
+      SIGNAL_BADFIT
+      )), envo)
+
+  envo$last_params <- NA # for debugging
+return( envo)
+}
+
+
+
 "boring_data_prep_humungo_A" <-
 function( sampo, prev_env=parent.env()){
   extract.named( sampo) # Samps, POPs, MHSPs, ...
@@ -804,6 +950,68 @@ return( MOP_df)
 
 
 
+"cheat_ruff_tru_pars" <-
+function( simpop, bdp_env) {
+  # bdp_env from boring_data_prep
+  # defined in this crazy way to avoid having to preset envir of this fun
+
+  funge <- function( sim) {
+    # extract.named( make_sim_names()) # not needed AFAICS
+    public <- attr( sim, 'public')
+    secret <- attr( sim, 'secret')
+    Amat <- public$Amat
+    AMAX <- lastel( public$C_sya, 3)
+    AGE <- 1:AMAX
+    AminC <- min( which( colSums( public$C_sya[ SLICE='F',,]) > 0)) # start pop dyn from this age up
+
+    # NB NB: *females* *only*
+    # c() to strip offarray attrib
+    fitto <- lm( log( c( secret$N_sya[ SLICE='F', SLICE=y0,])) ~ AGE, subset= AGE >= AminC)
+    aslope_y0 <- abs( coef( fitto)[2])
+    # 2021: logical subscript seems to kybosh the next
+    # Ncad_y0 <- sum( secret$N_sya[ SLICE='F', SLICE=y0, AGE >= AminC])
+    AGE_at_least_AminC <- AGE %such.that% (. >= AminC)
+    Ncad_y0 <- sum( secret$N_sya[ SLICE='F', SLICE=y0, AGE_at_least_AminC])
+    AGE_at_least_Amat <- AGE %such.that% (. >= Amat)
+    M <- mean( secret$M[ SLICE='F', AGE_at_least_Amat]) # ish...
+    fecata <- unclass( secret$fec_sa[ SLICE='F',]) # dropping
+    fitto <- lm( log( fecata) ~ log( public$wt_a), subset=AGE >= Amat)
+    wtfecpar <- coef( fitto)[2]
+
+    pars <- mget( cq( Ncad_y0, aslope_y0, M, wtfecpar))
+    pars <- sapply( pars, unname) # otherwise you get weird stuff tacked on
+  return( log( pars))
+  }
+  environment( funge) <- bdp_env
+
+  # make life easy when I'm trying to debug this...
+  if( all( cq( debug, evaluator) %in% all.names( body( sys.function())[[2]]))) {
+    mtrace( funge)
+  }
+
+return( funge( simpop))
+}
+
+
+
+"error_bars" <-
+function( x, ybar, yadd, ysub=yadd, linmul=0.2, ...) {
+  inches <- par( 'pin')[1] / diff( par('usr')[1:2])
+  lin <- linmul * inches / length( x)
+  suppressWarnings(  # about zero-length arrows, yawn
+    arrows( x0=x, y0=ybar + yadd, x1=x, y1=ybar-ysub, code=3, angle=90, length=lin, ...)
+  )
+}
+
+
+
+"fec_est_fun" <-
+function( par) { lglk_fish( par); with( env,
+    fecata[ AFEC] /fecata[SLICE=7]
+  )}
+
+
+
 "generic_lglk_cartoon" <-
 function( params){
   assign( 'last_params', params, environment( sys.function())) # debugging etc
@@ -873,6 +1081,145 @@ return( -1e100) # optim/nlminb has tried insane param values...
 
   ## The result!
   lglk <- sum( dpois( n_POP, lambda=n_comp_POP * Pr_POP, log=TRUE))
+
+return( lglk)
+}
+
+
+
+"generic_lglk_fish" <-
+function( params, log_prior=NULL, cheat=NULL){
+  ## For debugging only:
+  last_params <<- params
+
+  ## Unpack parameters
+  Ncad_y0 <- exp( params[ 1])           # total CATCHABLE abundance in year 1
+  aslope_y0 <- exp( params[ 2])
+  M <- exp( params[ 3])
+  wtfecpar <- exp( params[ 4])
+  fecata <- (weight ^ wtfecpar) * (1:AMAX >= Amat)
+
+
+  ## NB constant recruitment !
+  ## A "real" CKMR-commercial-fish model would also have Recruitment Deviations, one per cohort
+  # ... implemented as Random Effects, with variance estimated PROPERLY eg using TMB / Laplace Approx
+  # ... or MCMC, I suppose, if you must...
+  # You would NOT use R
+  # Quite a few other simplifications here compared to normal stock assessment...
+  # ... mainly for clarity-of-exposition, also speed
+
+  ## Population dynamics. No plus group --- certain death at AMAX
+  # Just FEMALES
+  # NB starts from first age where catches are taken--- no point in modelling younger ages explicitly
+  N_ya <- offarray( 0, first=c( min_Bju, AminC), last=c( max_Bju, AMAX))
+
+  # Split up numbers-at-age in first year
+  init <- exp( -aslope_y0 * ALL_AGES) # actually it's not *all* ages, but AminC up
+  N_ya[ y0,] <- Ncad_y0 * init / sum( init)
+  N_ya[ ,AminC] <- c( N_ya[ y0, AminC]) # constant recruitment for all subsequent years
+
+  if( any( is.na( N_ya))) {
+return( SIGNAL_BADFIT) # MASSIVE negative number (setup in boring_data_prep):
+    # ... Inf can cause problems, due to flaw in optim/nlminb
+  }
+
+  # Fill in all the pop dyn numbers
+  # Should use Baranov (and NB M is pretty high for notog1), but Pope's equation is easiest
+  eM2 <- exp( -M/2)
+  for( y in tail( Bju_range, -1)) {
+    N_ya[ y, Anonplus+1] <- (N_ya[ y-1, Anonplus]*eM2 - Cfem_ya[ y-1, Anonplus]) * eM2
+  }
+
+  if( any( N_ya < 0)) {
+return( SIGNAL_BADFIT)
+  }
+
+  if( !is.null( cheat)){ # Normally this does nothing! But can use to
+    # ... overwrite N_ya and fecata--- only for debugging!
+    extract.named( cheat)
+    N_ya <- N_sya[ SLICE='F', Bju_range, ALL_AGES] # keep the bits we want
+    fecata <- fec_sa[ SLICE='F', 1:AMAX]
+  }
+
+
+  ## CKMR stuff goes here...
+  TRO <- offarray(
+      N_ya[,ADAGES] %**% fecata[ ADAGES],
+      first=min_Bju,
+      last=max_Bju)
+
+  # Define this here so it knows about fecata. Vectorized (ie multiple 'a' at once).
+  fec_fn <- function( a) {
+      # check 0 <= a < AMAX
+      # If not, change a to something that allows fecata[ awork] to succeed...
+      awork <- pmax( 1, pmin( AMAX, a))
+      # ... and set fec to 0 if a <= 0
+      fecata[ awork] * (a > 0)
+    }
+
+
+  Pr_POP <- autoloop( Bju=Bju_range, Yad=Yad_range, Aad=ADAGES, {
+      Bad <- Yad - Aad
+      ( Bju <= Yad ) *          # was ad still alive at B[ju] ?
+      ( Bju >= Amat + Bad ) *   # was ad mature at B[ju] ?
+      ( fec_fn( Aad - (Yad-Bju)) / TRO[ Bju]) # ERRO if above
+    })
+
+  # Cumul surv
+  psurv_ayy <- autoloop( a1=ADAGES, y1=Bju_range, y2=Bju_range, {
+      dy <- y2-y1
+      a2 <- a1 + abs( dy) # dy<0 will be zapped below--- this is anti-overrun
+      a2_clip <- pmin( a2, AMAX) # avoid index overrun
+
+      ans <- (dy >= 0) *      # forwards only
+        (a2 <= AMAX) *   # last age class dies entirely
+        ( N_ya[ y2, a2_clip] / N_ya[ y1, a1]) # THIS is most important line
+    return( ans)
+    })
+
+  # Cond age of a Mother at B1: do-able in basic R, without autoloopery etc
+  Pr_Mum1Age <- autoloop( y=Bju_range, a=ADAGES, {
+    return( N_ya[ y, a] * fecata[ a] / TRO[ y])
+    })
+
+  # Prob of HSP with Mum also being of specific age when first was born
+  Pr_HSP_and_Mum1Age <- autoloop( B1=Bju_range, B2=Bju_range, PARAGE=ADAGES, {
+      # Conditional on Mum's age at B1 (ie PARAGE)
+      Pr_HSP_cond <- (B1 < B2) * psurv_ayy[ PARAGE, B1, B2] * fec_fn( PARAGE+B2-B1) / TRO[ B2]
+
+      # NB indices [B1,B2,PARAGE] are implicit in next line
+    return( Pr_HSP_cond * Pr_Mum1Age[ B1, PARAGE])
+    })
+
+  # That's the joint prob of HSPness and Mum-age. We just want the marginal prob of HSPness
+  Pr_HSP <- sumover( Pr_HSP_and_Mum1Age, 'PARAGE')
+  Pr_HSP <- Pr_HSP * (1-Pr_FNeg_HSP) # allow for known loss-rate due to kinference
+
+  lglk <- sum( dpois( n_POP, size=n_comp_POP, prob=Pr_POP, log=TRUE)) +
+      sum( dpois( n_HSP, size=n_comp_HSP, prob=Pr_HSP, log=TRUE))
+
+  # Optional penalty on the params, to avoid getting stuck...
+
+  if( !is.null( log_prior)) {
+    lglk <- lglk + log_prior( params)
+  }
+
+
+  if( !is.null( env$verbose)) { # for debugging
+    print( params)
+    scatn( 'HSP O & E: %i & %5.2f', sum( n_HSP), sum( n_comp_HSP * Pr_HSP))
+    scatn( 'POP O & E: %i & %5.2f', sum( n_POP), sum( n_comp_POP * Pr_POP))
+    if( sum( n_HSP_sc) > 0) { # check same-cht HSPs, if they are collected; in this sim, they aren't...
+      # ... and they won't (shouldn't) be used directly in estimation, either
+      scatn( 'HSP same-cohort O & E FYI:  %i & %5.2f',
+          sum( n_HSP_sc), sum( n_comp_HSP_sc * diag( unclass( Pr_HSP))))
+    }
+  }
+
+
+  # Useful to keep some stuff after function exits--- you can
+  # ... get this from "env" afterwards. Trust me, this works...
+  list2env( mget( cq( Ncad_y0, M, fecata, TRO, N_ya, Pr_POP, Pr_HSP)), env)
 
 return( lglk)
 }
@@ -1142,6 +1489,13 @@ return( lglk)
 
 
 
+"M_fun" <-
+function( par) { lglk_fish( par); with( env,
+    M
+  )}
+
+
+
 "pairid" <-
 function( i, j) i + 1/(1+j)
 
@@ -1214,6 +1568,44 @@ stopifnot( length( sel_Co)==n_Co_levels)
   stuff@public <- mget( cq( Co_levels, n_Co_levels))
 return( stuff)
 }
+
+
+
+"SPRR_fun" <-
+function( par, ranges=FALSE) {
+  lglk_fish( par)
+  env$ranges <<- ranges
+  result <- with( env, {
+    # Reconstruct F...
+    lastNyears <- head( tail( dimseq( N_ya)[[1]], 3), -1)
+    relevA <- 4 %upto% (dimrange( N_ya)[2,2]-1)
+    if( ranges) { # can't test directly...
+  return( returnList( lastNyears, relevA))
+    }
+
+    Zlast <- -log( N_ya[ lastNyears+1, relevA+1] / N_ya[ lastNyears, relevA])
+    Flast <- Zlast - M
+    Fav <- colMeans( Flast)
+    Zav <- colMeans( Zlast)
+    Mav <- 0*Zav + M # KISS!
+    Na_now <- exp( -cumsum( c( 0, Zav)))
+    Na_virgin <- exp( -cumsum( c( 0, Mav)))
+    relevFec <- fecata[ 4:(dimrange( N_ya)[2,2])]
+    ROlife_virgin <- Na_virgin %*% relevFec
+    ROlife_now <- Na_now %*% relevFec
+    SPRR <- ROlife_now / ROlife_virgin
+  return( c( SPRR))
+  })
+  env$ranges <<- NULL
+return( result)
+}
+
+
+
+"TRO7_est_fun" <-
+function( pars) { lglk_fish( pars); with( env,
+    N_ya %**% fecata[ AFEC] / fecata[SLICE=7]
+  )}
 
 
 
